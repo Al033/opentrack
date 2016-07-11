@@ -23,12 +23,12 @@
 #include "ui_main.h"
 
 #include "opentrack-compat/options.hpp"
-#include "opentrack/main-settings.hpp"
+#include "opentrack-logic/main-settings.hpp"
 #include "opentrack/plugin-support.hpp"
-#include "opentrack/tracker.h"
-#include "opentrack/shortcuts.h"
-#include "opentrack/work.hpp"
-#include "opentrack/state.hpp"
+#include "opentrack-logic/tracker.h"
+#include "opentrack-logic/shortcuts.h"
+#include "opentrack-logic/work.hpp"
+#include "opentrack-logic/state.hpp"
 #include "curve-config.h"
 #include "options-dialog.hpp"
 #include "process_detector.h"
@@ -39,9 +39,9 @@ using namespace options;
 class MainWindow : public QMainWindow, public State
 {
     Q_OBJECT
-    
-    Shortcuts global_shortcuts;
 
+    Shortcuts global_shortcuts;
+    module_settings m;
     Ui::OpentrackUI ui;
     mem<QSystemTrayIcon> tray;
     QTimer pose_update_timer;
@@ -55,7 +55,6 @@ class MainWindow : public QMainWindow, public State
     QMenu profile_menu;
     bool is_refreshing_profiles;
     volatile bool keys_paused;
-    QTimer save_timer;
     update_dialog::query update_query;
 
     mem<dylib> current_protocol()
@@ -66,21 +65,21 @@ class MainWindow : public QMainWindow, public State
     void changeEvent(QEvent* e) override;
 
     void load_settings();
+    void load_mappings();
     void updateButtonState(bool running, bool inertialp);
     void display_pose(const double* mapped, const double* raw);
     void ensure_tray();
     void set_title(const QString& game_title = QStringLiteral(""));
     static bool get_new_config_name_from_dialog(QString &ret);
     void set_profile(const QString& profile);
-    void maybe_save();
     bool maybe_not_close_tracking();
     void closeEvent(QCloseEvent *e) override;
     void register_shortcuts();
+    void set_keys_enabled(bool flag);
 private slots:
-    void _save();
-    void save();
+    void save_modules();
     void exit();
-    void profileSelected(QString name);
+    void profile_selected(const QString& name);
 
     void showProtocolSettings();
     void show_options_dialog();
@@ -90,8 +89,9 @@ private slots:
     void restore_from_tray(QSystemTrayIcon::ActivationReason);
     void maybe_start_profile_from_executable();
 
-    void make_empty_config();
+    bool make_empty_config_internal();
     void make_copied_config();
+    void make_config_from_wizard();
     void open_config_directory();
     void refresh_config_list();
 
@@ -103,12 +103,12 @@ signals:
     void emit_start_tracker();
     void emit_stop_tracker();
     void emit_toggle_tracker();
-    
+    void emit_restart_tracker();
+
     void emit_minimized(bool);
 public:
     MainWindow();
     ~MainWindow();
-    void save_mappings();
-    void load_mappings();
     static void set_working_directory();
+    void warn_on_config_not_writable();
 };

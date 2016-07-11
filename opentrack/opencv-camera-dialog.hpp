@@ -8,37 +8,57 @@
 
 #pragma once
 
+#if !defined(QT_MOC_RUN)
+
 #include <QTimer>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QDebug>
 #include <opencv2/videoio.hpp>
 #include "opentrack-compat/camera-names.hpp"
 
 #ifdef __linux
-#include <QProcess>
+#   include <QProcess>
 #endif
 
-template<typename tracker>
+#include "opentrack-compat/sleep.hpp"
+
+#ifdef _WIN32
+#   include <objbase.h>
+#   include <winerror.h>
+#   include <windows.h>
+#endif
+
+#ifdef _WIN32
+static void init_com_threading(void)
+{
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr))
+        qDebug() << "failed CoInitializeEx" << hr << "code" << GetLastError();
+}
+#endif
+
+static void maybe_grab_frame(cv::VideoCapture& cap)
+{
+    for (int i = 0; i < 60; i++)
+    {
+        if (cap.grab())
+            break;
+        portable::sleep(50);
+    }
+}
+
 class camera_dialog
 {
-#ifdef __linux
 public:
+    inline virtual ~camera_dialog() {}
+#ifdef __linux
     void open_camera_settings(cv::VideoCapture *, const QString &camera_name, QMutex *)
     {
         int idx = camera_name_to_index(camera_name);
         QProcess::startDetached("qv4l2", QStringList() << "-d" << ("/dev/video" + QString::number(idx)));
     }
-#else
-    cv::VideoCapture fake_capture;
-    QTimer t;
-
-private:
-    void delete_capture()
-    {
-        fake_capture.open("");
-    }
-
-public:
+#elif defined(_WIN32)
     void open_camera_settings(cv::VideoCapture* cap, const QString& camera_name, QMutex* camera_mtx)
     {
         if (cap)
@@ -47,6 +67,8 @@ public:
 
             if (cap->isOpened())
             {
+                init_com_threading();
+                maybe_grab_frame(*cap);
                 cap->set(cv::CAP_PROP_SETTINGS, 1);
                 return;
             }
@@ -59,14 +81,29 @@ public:
         if (!t.isSingleShot())
             QObject::connect(&t, &QTimer::timeout, [&]() -> void { delete_capture(); });
 
-        t.setSingleShot(true);
-        t.setInterval(3000);
-
+        init_com_threading();
         fake_capture = cv::VideoCapture(camera_name_to_index(camera_name));
+        maybe_grab_frame(fake_capture);
         fake_capture.set(cv::CAP_PROP_SETTINGS, 1);
+
+        t.setSingleShot(true);
+        t.setInterval(5000);
+
         // HACK: we're not notified when it's safe to close the capture
         t.start();
+    }
+#else
+    void open_camera_settings(cv::VideoCapture*, const QString&, QMutex*) {}
+#endif
+private:
+#if defined(_WIN32)
+    cv::VideoCapture fake_capture;
+    QTimer t;
+    void delete_capture()
+    {
+        fake_capture.open("");
     }
 #endif
 };
 
+#endif

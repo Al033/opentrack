@@ -6,11 +6,12 @@
  * copyright notice and this permission notice appear in all copies.
  */
 
-#ifndef FTNOIR_TRACKER_PT_SETTINGS_H
-#define FTNOIR_TRACKER_PT_SETTINGS_H
+#pragma once
 
 #include "opentrack-compat/options.hpp"
 using namespace options;
+
+enum { Cap = 0, ClipRight = 1, ClipLeft = 2 };
 
 struct settings_pt : opts
 {
@@ -22,7 +23,6 @@ struct settings_pt : opts
     value<int> model_used;
 
     value<bool> dynamic_pose;
-    value<int> init_phase_timeout;
     value<bool> auto_threshold;
 
     settings_pt() :
@@ -37,9 +37,6 @@ struct settings_pt : opts
         camera_mode(b, "camera-mode", 0),
         model_used(b, "model-used", 0),
         dynamic_pose(b, "dynamic-pose-resolution", true),
-        init_phase_timeout(b, "init-phase-timeout", 500),
         auto_threshold(b, "automatic-threshold", false)
     {}
 };
-
-#endif //FTNOIR_TRACKER_PT_SETTINGS_H

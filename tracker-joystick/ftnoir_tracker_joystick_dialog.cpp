@@ -11,13 +11,13 @@ TrackerControls::TrackerControls() : tracker(nullptr)
 
     {
         win32_joy_ctx joy_ctx;
-        
+
         _joys = QList<joys>();
-        
+
         for (auto j : joy_ctx.get_joy_info())
             _joys.push_back(joys { j.name, j.guid });
     }
-    
+
     {
         const QString guid = s.guid;
         int idx = 0;
@@ -45,10 +45,9 @@ void TrackerControls::doOK() {
     auto val = _joys.value(idx, def);
     s.guid = val.guid;
     s.b->save();
-    this->close();
+    close();
 }
 
 void TrackerControls::doCancel() {
-    s.b->reload();
-    this->close();
+    close();
 }

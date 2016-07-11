@@ -21,15 +21,19 @@
 #include "opentrack-compat/shm.h"
 #include "opentrack-compat/options.hpp"
 #include "freetrackclient/fttypes.h"
+#include <memory>
+#include "mutex.hpp"
+
 using namespace options;
 
 struct settings : opts {
     value<int> intUsedInterface;
-    value<bool> useTIRViews;
+    value<bool> useTIRViews, close_protocols_on_exit;
     settings() :
         opts("proto-freetrack"),
         intUsedInterface(b, "used-interfaces", 0),
-        useTIRViews(b, "use-memory-hacks", false)
+        useTIRViews(b, "use-memory-hacks", false),
+        close_protocols_on_exit(b, "close-protocols-on-exit", false)
     {}
 };
 
@@ -60,10 +64,14 @@ private:
     int intGameID;
     QString connected_game;
     QMutex game_name_mutex;
+    static check_for_first_run runonce_check;
 
-    static inline double getRadsFromDegrees(double degrees) { return degrees * 0.017453; }
+    static inline float rads_to_degrees(double degrees) { return float(degrees * 0.017453); }
     void start_tirviews();
     void start_dummy();
+
+public:
+    static void set_protocols(bool ft, bool npclient);
 };
 
 class FTControls: public IProtocolDialog

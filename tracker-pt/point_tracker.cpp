@@ -13,8 +13,6 @@
 
 #include <QDebug>
 
-const float PI = 3.14159265358979323846f;
-
 static void get_row(const cv::Matx33f& m, int i, cv::Vec3f& v)
 {
     v[0] = m(i,0);
@@ -39,7 +37,7 @@ void PointModel::get_d_order(const std::vector<cv::Vec2f>& points, int d_order[]
     // fit line to orthographically projected points
     std::vector<std::pair<float,int>> d_vals;
     // get sort indices with respect to d scalar product
-    for (unsigned i = 0; i<points.size(); ++i)
+    for (unsigned i = 0; i < PointModel::N_POINTS; ++i)
         d_vals.push_back(std::pair<float, int>(d.dot(points[i]), i));
 
     std::sort(d_vals.begin(),
@@ -47,7 +45,7 @@ void PointModel::get_d_order(const std::vector<cv::Vec2f>& points, int d_order[]
               d_vals_sort
               );
 
-    for (unsigned i = 0; i<points.size(); ++i)
+    for (unsigned i = 0; i < PointModel::N_POINTS; ++i)
         d_order[i] = d_vals[i].second;
 }
 
@@ -65,15 +63,15 @@ PointTracker::PointOrder PointTracker::find_correspondences_previous(const std::
 
     // set correspondences by minimum distance to projected model point
     bool point_taken[PointModel::N_POINTS];
-    for (int i=0; i<PointModel::N_POINTS; ++i)
+    for (unsigned i=0; i<PointModel::N_POINTS; ++i)
         point_taken[i] = false;
 
-    for (int i=0; i<PointModel::N_POINTS; ++i)
+    for (unsigned i=0; i<PointModel::N_POINTS; ++i)
     {
         float min_sdist = 0;
-        int min_idx = 0;
+        unsigned min_idx = 0;
         // find closest point to projected model point i
-        for (int j=0; j<PointModel::N_POINTS; ++j)
+        for (unsigned j=0; j<PointModel::N_POINTS; ++j)
         {
             cv::Vec2f d = p.points[i]-points[j];
             float sdist = d.dot(d);
@@ -133,7 +131,7 @@ PointTracker::PointOrder PointTracker::find_correspondences(const std::vector<cv
                       d);
     // set correspondences
     PointOrder p;
-    for (int i=0; i<PointModel::N_POINTS; ++i)
+    for (unsigned i = 0; i < PointModel::N_POINTS; ++i)
         p.points[model_d_order[i]] = points[point_d_order[i]];
 
     return p;
@@ -166,10 +164,15 @@ int PointTracker::POSIT(const PointModel& model, const PointOrder& order_, float
     cv::Matx33f R_1, R_2;
     cv::Matx33f* R_current;
 
-    const int MAX_ITER = 100;
-    const float EPS_THRESHOLD = 1e-4;
+    constexpr int MAX_ITER = 100;
+    const float EPS_THRESHOLD = 1e-4f;
 
     const cv::Vec2f* order = order_.points;
+
+    using std::sqrt;
+    using std::atan;
+    using std::cos;
+    using std::sin;
 
     int i=1;
     for (; i<MAX_ITER; ++i)
@@ -178,10 +181,10 @@ int PointTracker::POSIT(const PointModel& model, const PointOrder& order_, float
         epsilon_2 = k.dot(model.M02)/Z0;
 
         // vector of scalar products <I0, M0i> and <J0, M0i>
-        cv::Vec2f I0_M0i(order[1][0]*(1.0 + epsilon_1) - order[0][0],
-                order[2][0]*(1.0 + epsilon_2) - order[0][0]);
-        cv::Vec2f J0_M0i(order[1][1]*(1.0 + epsilon_1) - order[0][1],
-                order[2][1]*(1.0 + epsilon_2) - order[0][1]);
+        cv::Vec2f I0_M0i(order[1][0]*(1 + epsilon_1) - order[0][0],
+                order[2][0]*(1 + epsilon_2) - order[0][0]);
+        cv::Vec2f J0_M0i(order[1][1]*(1 + epsilon_1) - order[0][1],
+                order[2][1]*(1 + epsilon_2) - order[0][1]);
 
         // construct projection of I, J onto M0i plane: I0 and J0
         I0_coeff = model.P * I0_M0i;
@@ -194,6 +197,7 @@ int PointTracker::POSIT(const PointModel& model, const PointOrder& order_, float
         float IJ0 = I0.dot(J0);
         float JJ0 = J0.dot(J0);
         float rho, theta;
+        // CAVEAT don't change to comparison with an epsilon -sh 20160423
         if (JJ0 == II0) {
             rho = std::sqrt(std::abs(2*IJ0));
             theta = -PI/4;
@@ -214,7 +218,7 @@ int PointTracker::POSIT(const PointModel& model, const PointOrder& order_, float
         J_1 = J0 + rho*sin(theta)*model.u;
         J_2 = J0 - rho*sin(theta)*model.u;
 
-        float norm_const = 1.0/cv::norm(I_1); // all have the same norm
+        float norm_const = 1/cv::norm(I_1); // all have the same norm
 
         // create rotation matrices
         I_1 *= norm_const; J_1 *= norm_const;

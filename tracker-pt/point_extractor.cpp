@@ -13,6 +13,8 @@
 #   include "opentrack-compat/timer.hpp"
 #endif
 
+#include <cmath>
+
 PointExtractor::PointExtractor()
 {
     blobs.reserve(max_blobs);
@@ -23,7 +25,7 @@ const std::vector<cv::Vec2f>& PointExtractor::extract_points(cv::Mat& frame)
 {
     const int W = frame.cols;
     const int H = frame.rows;
-    
+
     if (frame_gray.rows != frame.rows || frame_gray.cols != frame.cols)
     {
         frame_gray = cv::Mat(frame.rows, frame.cols, CV_8U);
@@ -35,7 +37,7 @@ const std::vector<cv::Vec2f>& PointExtractor::extract_points(cv::Mat& frame)
 
     const double region_size_min = s.min_point_size;
     const double region_size_max = s.max_point_size;
-    
+
     const int thres = s.threshold;
 
     contours.clear();
@@ -57,8 +59,8 @@ const std::vector<cv::Vec2f>& PointExtractor::extract_points(cv::Mat& frame)
         const int sz = hist.cols * hist.rows;
         int val = 0;
         int cnt = 0;
-        constexpr int min_pixels = 250;
-        const auto pixels_to_include = std::max<int>(0, min_pixels * s.threshold/100.);
+        constexpr int min_pixels = int(10 * 10 * 3 * pi);
+        const int pixels_to_include = std::max<int>(0, min_pixels * s.threshold / 255);
         auto ptr = reinterpret_cast<const float*>(hist.ptr(0));
         for (int i = sz-1; i >= 0; i--)
         {
@@ -81,7 +83,13 @@ const std::vector<cv::Vec2f>& PointExtractor::extract_points(cv::Mat& frame)
 
     for (auto& c : contours)
     {
+        using std::fabs;
+
         const auto m = cv::moments(cv::Mat(c));
+
+        if (fabs(m.m00) < 1e-3)
+            continue;
+
         const cv::Vec2d pos(m.m10 / m.m00, m.m01 / m.m00);
 
         double radius;
@@ -124,22 +132,21 @@ const std::vector<cv::Vec2f>& PointExtractor::extract_points(cv::Mat& frame)
         }
 
         blobs.push_back(blob(radius, pos, confid));
-        
+
         if (blobs.size() == max_blobs)
             break;
     }
-    
+
     using b = const blob;
     std::sort(blobs.begin(), blobs.end(), [](b& b1, b& b2) {return b1.confid > b2.confid;});
-    
+
     QMutexLocker l(&mtx);
     points.clear();
-    
+
     for (auto& b : blobs)
     {
         cv::Vec2f p((b.pos[0] - W/2)/W, -(b.pos[1] - H/2)/W);
         points.push_back(p);
     }
-    
     return points;
 }

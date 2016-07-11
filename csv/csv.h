@@ -7,27 +7,24 @@
 #include <QRegExp>
 #include <QtGlobal>
 
-#ifdef BUILD_csv
-#   define CSV_EXPORT Q_DECL_EXPORT
-#else
-#   define CSV_EXPORT Q_DECL_IMPORT
-#endif
+#include "export.hpp"
 
-class CSV_EXPORT CSV
+class OPENTRACK_CSV_EXPORT CSV
 {
 public:
     QString readLine();
-    QStringList parseLine();
-    static QStringList parseLine(QString line);
+    bool parseLine(QStringList& ret);
 
     void setCodec(const char* codecName);
-    static bool getGameData(const int gameID, unsigned char* table, QString& gamename);
+    static bool getGameData(int gameID, unsigned char* table, QString& gamename);
 private:
-    QIODevice *m_device;
-    QTextCodec *m_codec;
+    CSV(QIODevice* device);
+
+    QIODevice* m_device;
     QString m_string;
     int m_pos;
-    QRegExp m_rx;
-    CSV(QIODevice * device);
-    CSV(QString &string);
+
+    static const QTextCodec* m_codec;
+    static const QRegExp m_rx;
+    static const QRegExp m_rx2; // Silly M$ compiler! It will generate an error if both of these variables are declared on the same line! (M$ Visual Studio Community 2015, Update 3)
 };

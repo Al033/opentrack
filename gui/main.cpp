@@ -74,6 +74,8 @@ int main(int argc, char** argv)
 
     if (get_camera_names().contains("PS3Eye Camera"))
     {
+        MainWindow::set_working_directory();
+
         auto w = std::make_shared<MainWindow>();
 
         w->show();

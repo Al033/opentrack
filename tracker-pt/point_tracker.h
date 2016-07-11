@@ -56,7 +56,7 @@ class PointModel
 {
     friend class PointTracker;
 public:
-    static constexpr int N_POINTS = 3;
+    static constexpr unsigned N_POINTS = 3;
 
     cv::Vec3f M01;      // M01 in model frame
     cv::Vec3f M02;      // M02 in model frame
@@ -76,13 +76,11 @@ public:
         float s11 = M01.dot(M01);
         float s12 = M01.dot(M02);
         float s22 = M02.dot(M02);
-        P = 1.0/(s11*s22-s12*s12) * cv::Matx22f(s22, -s12, -s12,  s11);
+        P = 1/(s11*s22-s12*s12) * cv::Matx22f(s22, -s12, -s12,  s11);
     }
 
     void set_model(settings_pt& s)
     {
-        enum { Cap = 0, ClipRight = 1, ClipLeft = 2 };
-
         switch (s.model_used)
         {
         default:
@@ -122,13 +120,15 @@ public:
     Affine pose() { QMutexLocker l(&mtx); return X_CM; }
     cv::Vec2f project(const cv::Vec3f& v_M, float f);
 private:
+    static constexpr float PI = 3.14159265358979323846f;
+
     // the points in model order
     struct PointOrder
     {
         cv::Vec2f points[PointModel::N_POINTS];
         PointOrder()
         {
-            for (int i = 0; i < PointModel::N_POINTS; i++)
+            for (unsigned i = 0; i < PointModel::N_POINTS; i++)
                 points[i] = cv::Vec2f(0, 0);
         }
     };

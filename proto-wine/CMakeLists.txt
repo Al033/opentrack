@@ -14,13 +14,13 @@ if(NOT WIN32)
               OUTPUT opentrack-wrapper-wine.exe.so
               DEPENDS ${wine-deps}
               COMMAND ${SDK_WINE_PREFIX}/bin/wineg++ -g -DNOMINMAX -O2 -m32 -std=c++11 -o
-                      opentrack-wrapper-wine.exe -I "${CMAKE_SOURCE_DIR}"
+                      opentrack-wrapper-wine.exe -I "${CMAKE_SOURCE_DIR}" -I "${CMAKE_BINARY_DIR}"
                       ${wine-deps}
                       ${my-rt})
             add_custom_target(wine-wrapper ALL DEPENDS opentrack-wrapper-wine.exe.so)
             add_dependencies(opentrack-proto-wine wine-wrapper)
             add_dependencies(wine-wrapper opentrack-compat)
-            install(FILES "${CMAKE_CURRENT_BINARY_DIR}/opentrack-wrapper-wine.exe.so" DESTINATION .)
+            install(FILES "${CMAKE_CURRENT_BINARY_DIR}/opentrack-wrapper-wine.exe.so" DESTINATION ${opentrack-hier-pfx})
         endif()
     endif()
 endif()

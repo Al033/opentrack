@@ -1,8 +1,8 @@
 #pragma once
 
 #include "opentrack-compat/options.hpp"
-#include "opentrack/main-settings.hpp"
-#include "opentrack/mappings.hpp"
+#include "opentrack-logic/main-settings.hpp"
+#include "opentrack-logic/mappings.hpp"
 #include "ui_trackhat-wizard.h"
 #include <QObject>
 #include <QWizard>

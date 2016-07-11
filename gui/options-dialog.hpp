@@ -4,12 +4,12 @@
 #include <QWidget>
 #include <QTimer>
 #include "ui_settings.h"
-#include "opentrack/state.hpp"
-#include "opentrack/shortcuts.h"
 #include "tracker-pt/ftnoir_tracker_pt_settings.h"
 #include "trans_calib.h"
 #include "tracker-pt/ftnoir_tracker_pt.h"
 #include "filter-accela/ftnoir_filter_accela.h"
+#include "opentrack-logic/shortcuts.h"
+#include "opentrack-logic/state.hpp"
 #include <QObject>
 #include <QWidget>
 #include <functional>
@@ -18,19 +18,18 @@ class OptionsDialog: public QWidget
 {
     Q_OBJECT
 signals:
-    void reload();
+    void saving();
 public:
-    OptionsDialog(main_settings& main, State& state, std::function<void()> register_global_keys, std::function<void(bool)> pause_keybindings);
+    OptionsDialog(std::function<void(bool)> pause_keybindings, State& state);
 private:
-    main_settings& main;
-    State& state;
-    std::function<void()> register_global_keys;
+    main_settings main;
     std::function<void(bool)> pause_keybindings;
     Ui::UI_Settings ui;
     settings_pt pt;
     settings_accela acc;
     QTimer timer;
     TranslationCalibrator trans_calib;
+    State& state;
     bool trans_calib_running;
 
     Tracker_PT* get_pt();

@@ -9,6 +9,8 @@
 #include "ftnoir_protocol_ft.h"
 #include "csv/csv.h"
 
+check_for_first_run FTNoIR_Protocol::runonce_check = check_for_first_run();
+
 FTNoIR_Protocol::FTNoIR_Protocol() :
     shm(FREETRACK_HEAP, FREETRACK_MUTEX, sizeof(FTHeap)),
     pMemData((FTHeap*) shm.ptr()),
@@ -16,6 +18,11 @@ FTNoIR_Protocol::FTNoIR_Protocol() :
     viewsStop(nullptr),
     intGameID(0)
 {
+    runonce_check.set_enabled(s.close_protocols_on_exit);
+    QObject::connect(&s.close_protocols_on_exit,
+                     static_cast<void (base_value::*)(bool)>(&value<bool>::valueChanged),
+                     [] (bool flag) -> void { runonce_check.set_enabled(flag); });
+    runonce_check.try_runonce();
 }
 
 FTNoIR_Protocol::~FTNoIR_Protocol()
@@ -30,13 +37,13 @@ FTNoIR_Protocol::~FTNoIR_Protocol()
 }
 
 void FTNoIR_Protocol::pose(const double* headpose) {
-    float yaw = -getRadsFromDegrees(headpose[Yaw]);
-    float pitch = -getRadsFromDegrees(headpose[Pitch]);
-    float roll = getRadsFromDegrees(headpose[Roll]);
-    float tx = headpose[TX] * 10.f;
-    float ty = headpose[TY] * 10.f;
-    float tz = headpose[TZ] * 10.f;
-    
+    const float yaw = -rads_to_degrees(headpose[Yaw]);
+    const float pitch = -rads_to_degrees(headpose[Pitch]);
+    const float roll = rads_to_degrees(headpose[Roll]);
+    const float tx = float(headpose[TX] * 10);
+    const float ty = float(headpose[TY] * 10);
+    const float tz = float(headpose[TZ] * 10);
+
     FTHeap* ft = pMemData;
     FTData* data = &ft->data;
 
@@ -46,14 +53,14 @@ void FTNoIR_Protocol::pose(const double* headpose) {
     data->RawPitch = 0;
     data->RawYaw = 0;
     data->RawRoll = 0;
-    
+
     data->X = tx;
     data->Y = ty;
     data->Z = tz;
     data->Yaw = yaw;
     data->Pitch = pitch;
     data->Roll = roll;
-    
+
     data->X1 = data->DataID;
     data->X2 = 0;
     data->X3 = 0;
@@ -62,23 +69,26 @@ void FTNoIR_Protocol::pose(const double* headpose) {
     data->Y2 = 0;
     data->Y3 = 0;
     data->Y4 = 0;
-    
+
     int32_t id = ft->GameID;
-    
+
     if (intGameID != id)
     {
         QString gamename;
         {
-            unsigned char table[8];
-            if (CSV::getGameData(id, table, gamename))
-                for (int i = 0; i < 8; i++) pMemData->table[i] = table[i];
+            unsigned char table[8] = { 0,0,0,0, 0,0,0,0 };
+
+            (void) CSV::getGameData(id, table, gamename);
+
+            for (int i = 0; i < 8; i++)
+                pMemData->table[i] = table[i];
         }
         ft->GameID2 = id;
         intGameID = id;
-        QMutexLocker foo(&this->game_name_mutex);
+        QMutexLocker foo(&game_name_mutex);
         connected_game = gamename;
     }
-    
+
     data->DataID += 1;
 }
 
@@ -108,43 +118,53 @@ void FTNoIR_Protocol::start_tirviews() {
 }
 
 void FTNoIR_Protocol::start_dummy() {
-
-
     QString program = QCoreApplication::applicationDirPath() + "/TrackIR.exe";
     dummyTrackIR.setProgram("\"" + program + "\"");
     dummyTrackIR.start();
 }
 
+void FTNoIR_Protocol::set_protocols(bool ft, bool npclient)
+{
+    const QString program_dir =  QCoreApplication::applicationDirPath() + "/";
+
+    // Registry settings (in HK_USER)
+    QSettings settings_ft("Freetrack", "FreetrackClient");
+    QSettings settings_npclient("NaturalPoint", "NATURALPOINT\\NPClient Location");
+
+    if (ft)
+        settings_ft.setValue("Path", program_dir);
+    else
+        settings_ft.setValue("Path", "");
+
+    if (npclient)
+        settings_npclient.setValue("Path", program_dir);
+    else
+        settings_npclient.setValue("Path", "");
+}
+
 bool FTNoIR_Protocol::correct()
 {
-    // Registry settings (in HK_USER)
-    QSettings settings("Freetrack", "FreetrackClient");
-    QSettings settingsTIR("NaturalPoint", "NATURALPOINT\\NPClient Location");
-
     if (!shm.success())
         return false;
 
-    QString aLocation =  QCoreApplication::applicationDirPath() + "/";
+    bool use_ft = false, use_npclient = false;
 
     switch (s.intUsedInterface) {
     case 0:
-        // Use both interfaces
-        settings.setValue( "Path" , aLocation );
-        settingsTIR.setValue( "Path" , aLocation );
+        use_ft = true;
+        use_npclient = true;
         break;
     case 1:
-        // Use FreeTrack, disable TrackIR
-        settings.setValue( "Path" , aLocation );
-        settingsTIR.setValue( "Path" , "" );
+        use_ft = true;
         break;
     case 2:
-        // Use TrackIR, disable FreeTrack
-        settings.setValue( "Path" , "" );
-        settingsTIR.setValue( "Path" , aLocation );
+        use_npclient = true;
         break;
     default:
         break;
     }
+
+    set_protocols(use_ft, use_npclient);
 
     if (s.useTIRViews) {
         start_tirviews();

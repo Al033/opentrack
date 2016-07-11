@@ -11,7 +11,6 @@
 
 #include <QPainter>
 #include <QPaintEvent>
-//#include <QDebug>
 
 GLWidget::GLWidget(QWidget *parent) : QWidget(parent)
 {
@@ -29,18 +28,20 @@ GLWidget::~GLWidget()
 void GLWidget::paintEvent ( QPaintEvent * event ) {
     QPainter p(this);
     project_quad_texture();
-    p.drawImage(event->rect(), texture);
+    p.drawImage(event->rect(), image);
 }
 
 void GLWidget::rotateBy(float xAngle, float yAngle, float zAngle, float x, float y, float z)
 {
+    using std::sin;
+    using std::cos;
 
-    float c1 = cos(yAngle / 57.295781);
-    float s1 = sin(yAngle / 57.295781);
-    float c2 = cos(xAngle / 57.295781);
-    float s2 = sin(xAngle / 57.295781);
-    float c3 = cos(zAngle / 57.295781);
-    float s3 = sin(zAngle / 57.295781);
+    float c1 = cos(yAngle / 57.295781f);
+    float s1 = sin(yAngle / 57.295781f);
+    float c2 = cos(xAngle / 57.295781f);
+    float s2 = sin(xAngle / 57.295781f);
+    float c3 = cos(zAngle / 57.295781f);
+    float s3 = sin(zAngle / 57.295781f);
 
     rotation = rmat(c2*c3,           -c2*s3,          s2,
                     c1*s3+c3*s1*s2,  c1*c3-s1*s2*s3,  -c2*s1,
@@ -66,7 +67,17 @@ public:
         dot00 = v0.dot(v0);
         dot01 = v0.dot(v1);
         dot11 = v1.dot(v1);
-        invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        const num denom = dot00 * dot11 - dot01 * dot01;
+        if (std::fabs(denom) < 1e3f)
+        {
+            // for perpendicular plane, ensure u and v don't come out right
+            // this is done here to avoid branching below, in a hot loop
+            invDenom = 0;
+            dot00 = dot01 = dot11 = 0;
+            v0 = v1 = vec2(0, 0);
+        }
+        else
+            invDenom = 1 / denom;
     }
     bool barycentric_coords(const vec2& px, vec2& uv) const
     {
@@ -86,12 +97,14 @@ private:
 
 inline GLWidget::vec3 GLWidget::normal(const vec3& p1, const vec3& p2, const vec3& p3)
 {
+    using std::sqrt;
+
     vec3 u = p2 - p1;
     vec3 v = p3 - p1;
 
     vec3 tmp = u.cross(v);
 
-    num i = 1./sqrt(tmp.dot(tmp));
+    num i = 1/sqrt(tmp.dot(tmp));
 
     return tmp * i;
 }
@@ -198,7 +211,7 @@ void GLWidget::project_quad_texture() {
                     const unsigned char r___ = orig[orig_pos___ + 2];
                     const unsigned char g___ = orig[orig_pos___ + 1];
                     const unsigned char b___ = orig[orig_pos___ + 0];
-                    
+
                     const unsigned char a1 = orig[orig_pos + 3];
                     const unsigned char a2 = orig[orig_pos_ + 3];
                     const unsigned char a3 = orig[orig_pos__ + 3];
@@ -217,13 +230,13 @@ void GLWidget::project_quad_texture() {
                 }
             }
         }
-    this->texture = texture;
+    image = texture;
 }
 
 GLWidget::vec2 GLWidget::project(const vec3 &point)
 {
     vec3 ret = rotation * point;
-    num z = std::max<num>(.75, 1. + translation.z()/-60);
+    num z = std::max<num>(.75f, 1 + translation.z()/-60);
     int w = width(), h = height();
     num x = w * translation.x() / 2 / -40;
     if (std::abs(x) > w/2)

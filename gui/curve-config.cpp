@@ -7,15 +7,30 @@
  */
 
 #include "curve-config.h"
-#include "opentrack/main-settings.hpp"
-MapWidget::MapWidget(Mappings& m, main_settings& s) :
+#include "opentrack-logic/main-settings.hpp"
+MapWidget::MapWidget(Mappings& m) :
     m(m)
 {
-    ui.setupUi( this );
+    ui.setupUi(this);
 
-    // rest of mapping settings taken care of by options::value<t>
     m.load_mappings();
 
+    reload();
+
+    setFont(qApp->font());
+    connect(ui.buttonBox, SIGNAL(accepted()), this, SLOT(doOK()));
+    connect(ui.buttonBox, SIGNAL(rejected()), this, SLOT(doCancel()));
+
+    tie_setting(s.a_x.altp, ui.tx_altp);
+    tie_setting(s.a_y.altp, ui.ty_altp);
+    tie_setting(s.a_z.altp, ui.tz_altp);
+    tie_setting(s.a_yaw.altp, ui.rx_altp);
+    tie_setting(s.a_pitch.altp, ui.ry_altp);
+    tie_setting(s.a_roll.altp, ui.rz_altp);
+}
+
+void MapWidget::reload()
+{
     {
         struct {
             QFunctionConfigurator* qfc;
@@ -50,38 +65,30 @@ MapWidget::MapWidget(Mappings& m, main_settings& s) :
             {
                 QFunctionConfigurator& qfc = *qfcs[i].qfc;
                 connect(qfcs[i].checkbox, &QCheckBox::toggled,
+                        this,
                         [&](bool f) -> void {qfc.setEnabled(f); qfc.force_redraw();});
                 qfc.setEnabled(qfcs[i].checkbox->isChecked());
                 qfc.force_redraw();
             }
-            
+
             if (qfcs[i].axis >= 3)
                 qfcs[i].qfc->set_snap(2, 5);
             else
                 qfcs[i].qfc->set_snap(1, 5);
-            
+
             qfcs[i].qfc->setConfig(conf, name);
         }
     }
-
-    setFont(qApp->font());
-    connect(ui.buttonBox, SIGNAL(accepted()), this, SLOT(doOK()));
-    connect(ui.buttonBox, SIGNAL(rejected()), this, SLOT(doCancel()));
-
-    tie_setting(s.a_x.altp, ui.tx_altp);
-    tie_setting(s.a_y.altp, ui.ty_altp);
-    tie_setting(s.a_z.altp, ui.tz_altp);
-    tie_setting(s.a_yaw.altp, ui.rx_altp);
-    tie_setting(s.a_pitch.altp, ui.ry_altp);
-    tie_setting(s.a_roll.altp, ui.rz_altp);
 }
 
-void MapWidget::doOK() {
+void MapWidget::doOK()
+{
     m.save_mappings();
-    this->close();
+    close();
 }
 
-void MapWidget::doCancel() {
+void MapWidget::doCancel()
+{
     m.invalidate_unsaved();
-    this->close();
+    close();
 }

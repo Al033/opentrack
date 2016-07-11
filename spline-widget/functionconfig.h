@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, Stanislaw Halik <sthalik@misaki.pl>
+/* Copyright (c) 2012-2016, Stanislaw Halik <sthalik@misaki.pl>
 
  * Permission to use, copy, modify, and/or distribute this
  * software for any purpose with or without fee is hereby granted,
@@ -24,57 +24,43 @@
 #   define SPLINE_WIDGET_EXPORT Q_DECL_IMPORT
 #endif
 
-class SPLINE_WIDGET_EXPORT Map {
+class SPLINE_WIDGET_EXPORT Map
+{
 private:
-    static constexpr int value_count = 10000;
-
-    struct State {
-        QList<QPointF> input;
-        std::vector<float> data;
-    };
-
     int precision() const;
     void reload();
     float getValueInternal(int x);
 
+    struct State
+    {
+        QList<QPointF> input;
+        std::vector<float> data;
+        bool operator==(const State& s) const;
+    };
+
     MyMutex _mutex;
     QPointF last_input_value;
-    volatile bool activep;
-    double max_x;
-    double max_y;
-
     State cur, saved;
+    qreal max_x, max_y;
+    volatile bool activep;
+
+    static constexpr int value_count = 10000;
 public:
-    double maxInput() const { return max_x; }
-    double maxOutput() const { return max_y; }
+    qreal maxInput() const;
+    qreal maxOutput() const;
     Map();
-    Map(double maxx, double maxy)
-    {
-        setMaxInput(maxx);
-        setMaxOutput(maxy);
-        if (cur.input.size() == 0)
-            cur.input.push_back(QPointF(maxx, maxy));
-        reload();
-    }
+    Map(qreal maxx, qreal maxy);
 
     float getValue(float x);
     bool getLastPoint(QPointF& point);
     void removePoint(int i);
-    void removeAllPoints() {
-        QMutexLocker foo(&_mutex);
-        cur.input.clear();
-        reload();
-    }
+    void removeAllPoints();
 
     void addPoint(QPointF pt);
     void movePoint(int idx, QPointF pt);
     const QList<QPointF> getPoints();
-    void setMaxInput(double MaxInput) {
-        max_x = MaxInput;
-    }
-    void setMaxOutput(double MaxOutput) {
-        max_y = MaxOutput;
-    }
+    void setMaxInput(qreal MaxInput);
+    void setMaxOutput(qreal MaxOutput);
 
     void saveSettings(QSettings& settings, const QString& title);
     void loadSettings(QSettings& settings, const QString& title);

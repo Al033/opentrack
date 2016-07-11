@@ -9,6 +9,7 @@
 #include "options-dialog.hpp"
 #include "tracker-pt/camera.h"
 #include "keyboard.h"
+#include "opentrack-logic/state.hpp"
 #include <QPushButton>
 #include <QLayout>
 #include <QDialog>
@@ -30,14 +31,10 @@ static QString kopts_to_string(const key_opts& kopts)
     return kopts.keycode;
 }
 
-OptionsDialog::OptionsDialog(main_settings& main,
-                             State& state,
-                             std::function<void()> register_global_keys,
-                             std::function<void(bool)> pause_keybindings) :
-    main(main),
+OptionsDialog::OptionsDialog(std::function<void(bool)> pause_keybindings, State& state) :
+    pause_keybindings(pause_keybindings),
     state(state),
-    register_global_keys(register_global_keys),
-    pause_keybindings(pause_keybindings)
+    trans_calib_running(false)
 {
     ui.setupUi(this);
 
@@ -45,9 +42,9 @@ OptionsDialog::OptionsDialog(main_settings& main,
     connect(ui.buttonBox, SIGNAL(rejected()), this, SLOT(doCancel()));
 
     tie_setting(main.tray_enabled, ui.trayp);
-    
+
     tie_setting(main.center_at_startup, ui.center_at_startup);
-    
+
     tie_setting(pt.camera_mode, ui.camera_mode);
 
     tie_setting(pt.threshold, ui.threshold_slider);
@@ -58,36 +55,34 @@ OptionsDialog::OptionsDialog(main_settings& main,
     tie_setting(pt.t_MH_x, ui.tx_spin);
     tie_setting(pt.t_MH_y, ui.ty_spin);
     tie_setting(pt.t_MH_z, ui.tz_spin);
-    
+
     tie_setting(pt.fov, ui.camera_fov);
-    
+
     tie_setting(pt.model_used, ui.model_used);
-    
+
     connect(ui.ewma_slider, SIGNAL(valueChanged(int)), this, SLOT(update_ewma_display(int)));
     connect(ui.rotation_slider, SIGNAL(valueChanged(int)), this, SLOT(update_rot_display(int)));
     connect(ui.rot_dz_slider, SIGNAL(valueChanged(int)), this, SLOT(update_rot_dz_display(int)));
     connect(ui.translation_slider, SIGNAL(valueChanged(int)), this, SLOT(update_trans_display(int)));
     connect(ui.trans_dz_slider, SIGNAL(valueChanged(int)), this, SLOT(update_trans_dz_display(int)));
-    
+
     tie_setting(acc.rot_threshold, ui.rotation_slider);
     tie_setting(acc.trans_threshold, ui.translation_slider);
     tie_setting(acc.ewma, ui.ewma_slider);
     tie_setting(acc.rot_deadzone, ui.rot_dz_slider);
     tie_setting(acc.trans_deadzone, ui.trans_dz_slider);
-    
+
     update_rot_display(ui.rotation_slider->value());
     update_trans_display(ui.translation_slider->value());
     update_ewma_display(ui.ewma_slider->value());
     update_rot_dz_display(ui.rot_dz_slider->value());
     update_trans_dz_display(ui.trans_dz_slider->value());
-    
-    tie_setting(pt.dynamic_pose, ui.dynamic_pose);
-    tie_setting(pt.init_phase_timeout, ui.init_phase_timeout);
+
     tie_setting(pt.auto_threshold, ui.auto_threshold);
-    
+
     connect(&timer,SIGNAL(timeout()), this,SLOT(poll_tracker_info()));
     connect( ui.tcalib_button,SIGNAL(toggled(bool)), this,SLOT(startstop_trans_calib(bool)) );
-    
+
     timer.start(100);
 
     tie_setting(main.tcomp_p, ui.tcomp_enable);
@@ -106,25 +101,41 @@ OptionsDialog::OptionsDialog(main_settings& main,
     tie_setting(main.a_x.src, ui.src_x);
     tie_setting(main.a_y.src, ui.src_y);
     tie_setting(main.a_z.src, ui.src_z);
-    
+
     tie_setting(main.camera_yaw, ui.camera_yaw);
     tie_setting(main.camera_pitch, ui.camera_pitch);
     tie_setting(main.camera_roll, ui.camera_roll);
 
-    connect(ui.bind_center, &QPushButton::pressed, [&]() -> void { bind_key(main.key_center, ui.center_text); });
-    connect(ui.bind_zero, &QPushButton::pressed, [&]() -> void { bind_key(main.key_zero, ui.zero_text); });
-    connect(ui.bind_toggle, &QPushButton::pressed, [&]() -> void { bind_key(main.key_toggle, ui.toggle_text); });
-    connect(ui.bind_start, &QPushButton::pressed, [&]() -> void { bind_key(main.key_start_tracking, ui.start_tracking_text); });
-    connect(ui.bind_stop, &QPushButton::pressed, [&]() -> void { bind_key(main.key_stop_tracking, ui.stop_tracking_text); });
-    connect(ui.bind_toggle_tracking, &QPushButton::pressed, [&]() -> void { bind_key(main.key_toggle_tracking, ui.toggle_tracking_text); });
+    struct tmp
+    {
+        key_opts& opt;
+        QLabel* label;
+        QPushButton* button;
+    } tuples[] =
+    {
+        { main.key_center, ui.center_text, ui.bind_center },
+        { main.key_toggle, ui.toggle_text, ui.bind_toggle },
+        { main.key_toggle_press, ui.toggle_held_text, ui.bind_toggle_held },
+        { main.key_zero, ui.zero_text, ui.bind_zero },
+        { main.key_zero_press, ui.zero_held_text, ui.bind_zero_held },
+        { main.key_start_tracking, ui.start_tracking_text, ui.bind_start },
+        { main.key_stop_tracking, ui.stop_tracking_text , ui.bind_stop},
+        { main.key_toggle_tracking, ui.toggle_tracking_text, ui.bind_toggle_tracking },
+        { main.key_restart_tracking, ui.restart_tracking_text, ui.bind_restart_tracking }
+    };
 
-    ui.center_text->setText(kopts_to_string(main.key_center));
-    ui.toggle_text->setText(kopts_to_string(main.key_toggle));
-    ui.zero_text->setText(kopts_to_string(main.key_zero));
-    
-    ui.start_tracking_text->setText(kopts_to_string(main.key_start_tracking));
-    ui.stop_tracking_text->setText(kopts_to_string(main.key_stop_tracking));
-    ui.toggle_tracking_text->setText(kopts_to_string(main.key_toggle_tracking));
+    for (const tmp& val_ : tuples)
+    {
+        tmp val = val_;
+        val.label->setText(kopts_to_string(val.opt));
+        connect(&val.opt.keycode,
+                static_cast<void (base_value::*)(const QString&)>(&base_value::valueChanged),
+                val.label,
+                [=](const QString&) -> void { val.label->setText(kopts_to_string(val.opt)); });
+        {
+            connect(val.button, &QPushButton::pressed, this, [=]() -> void { bind_key(val.opt, val.label); });
+        }
+    }
 }
 
 void OptionsDialog::bind_key(key_opts& kopts, QLabel* label)
@@ -132,37 +143,43 @@ void OptionsDialog::bind_key(key_opts& kopts, QLabel* label)
     kopts.button = -1;
     kopts.guid = "";
     kopts.keycode = "";
-    QDialog d(this);
-    auto l = new QHBoxLayout;
-    l->setMargin(0);
+    QDialog d;
+    QHBoxLayout l;
+    l.setMargin(0);
     KeyboardListener k;
-    l->addWidget(&k);
-    d.setLayout(l);
+    l.addWidget(&k);
+    d.setLayout(&l);
     d.setFixedSize(QSize(500, 300));
     d.setWindowFlags(Qt::Dialog);
     d.setWindowModality(Qt::ApplicationModal);
-    connect(&k, &KeyboardListener::key_pressed, [&] (QKeySequence s) -> void {
-        kopts.keycode = s.toString(QKeySequence::PortableText);
-        kopts.guid = "";
-        kopts.button = -1;
-        d.close();
-    });
-    connect(&k, &KeyboardListener::joystick_button_pressed, [&](QString guid, int idx, bool held) -> void {
-        if (!held)
-        {
-            kopts.guid = guid;
-            kopts.keycode = "";
-            kopts.button = idx;
-            d.close();
-        }
-    });
+    connect(&k,
+            &KeyboardListener::key_pressed,
+            &d,
+            [&](QKeySequence s) -> void
+            {
+                kopts.keycode = s.toString(QKeySequence::PortableText);
+                kopts.guid = "";
+                kopts.button = -1;
+                d.close();
+            });
+    connect(&k, &KeyboardListener::joystick_button_pressed,
+            &d,
+            [&](QString guid, int idx, bool held) -> void
+            {
+                if (!held)
+                {
+                    kopts.guid = guid;
+                    kopts.keycode = "";
+                    kopts.button = idx;
+                    d.close();
+                }
+            });
+    connect(main.b.get(), &options::detail::opt_bundle::reloading, &d, &QDialog::close);
     pause_keybindings(true);
     d.show();
     d.exec();
     pause_keybindings(false);
-    register_global_keys();
     label->setText(kopts_to_string(kopts));
-    delete l;
 }
 
 void OptionsDialog::doOK() {
@@ -170,8 +187,8 @@ void OptionsDialog::doOK() {
     acc.b->save();
     main.b->save();
     ui.game_detector->save();
-    this->close();
-    emit reload();
+    close();
+    emit saving();
 }
 
 void OptionsDialog::doCancel() {
@@ -190,7 +207,7 @@ void OptionsDialog::startstop_trans_calib(bool start)
         ui.tcalib_button->setChecked(false);
         return;
     }
-        
+
     if (start)
     {
         qDebug()<<"TrackerDialog:: Starting translation calibration";
@@ -217,7 +234,8 @@ void OptionsDialog::poll_tracker_info()
 {
     auto tracker = get_pt();
     CamInfo info;
-    if (tracker && tracker->get_cam_info(&info))
+    const bool running = tracker && tracker->get_cam_info(&info);
+    if (running)
     {
         QString to_print;
 
@@ -242,6 +260,7 @@ void OptionsDialog::poll_tracker_info()
         ui.caminfo_label->setText("Tracker offline");
         ui.pointinfo_label->setText("");
     }
+    ui.tcalib_button->setEnabled(running);
 }
 
 void OptionsDialog::trans_calib_step()

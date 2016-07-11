@@ -10,15 +10,18 @@ MOUSEControls::MOUSEControls()
 
     tie_setting(s.Mouse_X, ui.cbxSelectMouse_X);
     tie_setting(s.Mouse_Y, ui.cbxSelectMouse_Y);
+
+    tie_setting(s.sensitivity_x, ui.sensitivity_x);
+    tie_setting(s.sensitivity_y, ui.sensitivity_y);
 }
 
 void MOUSEControls::doOK() {
     s.b->save();
-    this->close();
+    close();
 }
 
-void MOUSEControls::doCancel() {
-    s.b->reload();
-    this->close();
+void MOUSEControls::doCancel()
+{
+    close();
 }
 

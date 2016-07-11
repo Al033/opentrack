@@ -9,5 +9,6 @@
         <file>images/trackhat-clip-left.png</file>
         <file>images/trackhat-clip-right.png</file>
         <file>images/trackhat-hat.png</file>
+        <file>images/tracking-not-started.png</file>
     </qresource>
 </RCC>

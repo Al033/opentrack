@@ -4,6 +4,12 @@
 #include "OVR_CAPI.h"
 #include "Kernel/OVR_Math.h"
 #include <cstdio>
+#include <cstring>
+#include <cmath>
+
+#ifndef M_PI
+#   define M_PI 3.14159265358979323846
+#endif
 
 using namespace OVR;
 
@@ -38,32 +44,35 @@ void Rift_Tracker::data(double *data)
 {
     if (hmd)
     {
-	ovrHSWDisplayState hsw;	
-	if (ovrHmd_GetHSWDisplayState(hmd, &hsw), hsw.Displayed)
+        ovrHSWDisplayState hsw;
+        std::memset(&hsw, 0, sizeof(hsw));
+        ovrHmd_GetHSWDisplayState(hmd, &hsw);
+        if (hsw.Displayed)
             ovrHmd_DismissHSWDisplay(hmd);
         ovrTrackingState ss = ovrHmd_GetTrackingState(hmd, 0);
-        if(ss.StatusFlags & ovrStatus_OrientationTracked) {
+        if (ss.StatusFlags & ovrStatus_OrientationTracked)
+        {
             auto pose = ss.HeadPose.ThePose;
             Quatf quat = pose.Orientation;
             float yaw, pitch, roll;
             quat.GetEulerAngles<Axis_Y, Axis_X, Axis_Z>(&yaw, &pitch, &roll);
-            // XXX TODO move to core
+            double yaw_ = yaw;
             if (s.useYawSpring)
             {
-                yaw = old_yaw*s.persistence + (yaw-old_yaw);
-                if(yaw > s.deadzone)
-                    yaw -= s.constant_drift;
-                if(yaw < -s.deadzone)
-                    yaw += s.constant_drift;
-                old_yaw=yaw;
+                yaw_ = old_yaw*s.persistence + (yaw_ - old_yaw);
+                if (yaw_ > s.deadzone)
+                    yaw_ -= s.constant_drift;
+                if (yaw_ < -s.deadzone)
+                    yaw_ += s.constant_drift;
+                old_yaw = yaw_;
             }
-            constexpr double d2r = 57.295781;
-            data[Yaw] = yaw * -d2r;
-            data[Pitch] = pitch * d2r;
-            data[Roll] = roll * d2r;
-            data[TX] = pose.Position.x * -1e2;
-            data[TY] = pose.Position.y *  1e2;
-            data[TZ] = pose.Position.z *  1e2;
+            static constexpr double d2r = 180 / M_PI;
+            data[Yaw] = yaw_ * -d2r;
+            data[Pitch] = double(pitch) * d2r;
+            data[Roll] = double(roll) * d2r;
+            data[TX] = double(pose.Position.x) * -1e2;
+            data[TY] = double(pose.Position.y) *  1e2;
+            data[TZ] = double(pose.Position.z) *  1e2;
         }
     }
 }

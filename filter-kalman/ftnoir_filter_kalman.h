@@ -10,14 +10,15 @@
 
 #include "ui_ftnoir_kalman_filtercontrols.h"
 #include "opentrack/plugin-api.hpp"
-#include <opencv2/core/core.hpp>
-#include <opencv2/video/video.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/video/tracking.hpp>
 #include <vector>
 #include <QString>
 #include <QElapsedTimer>
 #include <QWidget>
 #include "opentrack-compat/options.hpp"
 using namespace options;
+#include "opentrack-compat/timer.hpp"
 
 struct settings : opts {
     value<int> noise_stddev_slider;
@@ -39,7 +40,8 @@ public:
     static constexpr double accel_stddev = (accel*4/(dt_*dt_))/3.0;
     cv::KalmanFilter kalman;
     double last_input[6];
-    QElapsedTimer timer;
+    Timer timer;
+    bool first_run;
     settings s;
     int prev_slider_pos;
 };

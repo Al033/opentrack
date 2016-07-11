@@ -1,11 +1,12 @@
 #include "wizard.h"
-#include "opentrack/state.hpp"
+#include "opentrack-logic/state.hpp"
 #include "tracker-pt/ftnoir_tracker_pt_settings.h"
 #include "filter-accela/ftnoir_filter_accela.h"
 
 Wizard::Wizard() : QWizard(nullptr)
 {
     ui.setupUi(this);
+    setModal(Qt::ApplicationModal);
     connect(this, SIGNAL(accepted()), this, SLOT(set_data()));
 }
 

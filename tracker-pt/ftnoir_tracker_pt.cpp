@@ -7,23 +7,24 @@
  */
 
 #include "ftnoir_tracker_pt.h"
+#include "opentrack-compat/camera-names.hpp"
+#include "opentrack-compat/sleep.hpp"
+#include "ftnoir_tracker_pt_settings.h"
 #include <QHBoxLayout>
 #include <cmath>
 #include <QDebug>
 #include <QFile>
 #include <QCoreApplication>
-#include "opentrack-compat/camera-names.hpp"
-#include "opentrack-compat/sleep.hpp"
 #include <functional>
 
 //#define PT_PERF_LOG	//log performance
 
 //-----------------------------------------------------------------------------
-Tracker_PT::Tracker_PT()
-    : commands(0),
+Tracker_PT::Tracker_PT() :
       video_widget(NULL),
       video_frame(NULL),
-      ever_success(false)
+      ever_success(false),
+      commands(0)
 {
     connect(s.b.get(), SIGNAL(saving()), this, SLOT(apply_settings()));
 }
@@ -88,6 +89,8 @@ bool Tracker_PT::get_focal_length(float& ret)
 
 void Tracker_PT::run()
 {
+    cv::setNumThreads(0);
+
 #ifdef PT_PERF_LOG
     QFile log_file(QCoreApplication::applicationDirPath() + "/PointTrackerPerformance.txt");
     if (!log_file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
@@ -118,20 +121,24 @@ void Tracker_PT::run()
             float fx;
             if (!get_focal_length(fx))
                 continue;
-            
+
             const bool success = points.size() >= PointModel::N_POINTS;
 
             if (success)
             {
-                point_tracker.track(points, PointModel(s), fx, s.dynamic_pose, s.init_phase_timeout);
+                static constexpr int init_phase_timeout_ms = 2000;
+                const bool use_dynamic_pose = s.model_used != Cap;
+                point_tracker.track(points, PointModel(s), fx, use_dynamic_pose, init_phase_timeout_ms);
                 ever_success = true;
             }
-            
+
             Affine X_CM = pose();
 
             std::function<void(const cv::Vec2f&, const cv::Scalar)> fun = [&](const cv::Vec2f& p, const cv::Scalar color)
             {
-                auto p2 = cv::Point(p[0] * frame_.cols + frame_.cols/2, -p[1] * frame_.cols + frame_.rows/2);
+                using std::round;
+                cv::Point p2(round(p[0] * frame_.cols + frame_.cols/2),
+                             round(-p[1] * frame_.cols + frame_.rows/2));
                 cv::line(frame_,
                          cv::Point(p2.x - 20, p2.y),
                          cv::Point(p2.x + 20, p2.y),
@@ -141,14 +148,14 @@ void Tracker_PT::run()
                          cv::Point(p2.x, p2.y - 20),
                          cv::Point(p2.x, p2.y + 20),
                          color,
-                         4);                
+                         4);
             };
 
             for (unsigned i = 0; i < points.size(); i++)
             {
                 fun(points[i], cv::Scalar(0, 255, 0));
             }
-            
+
             {
                 Affine X_MH(cv::Matx33f::eye(), get_model_offset()); // just copy pasted these lines from below
                 Affine X_GH = X_CM * X_MH;
@@ -185,10 +192,11 @@ cv::Vec3f Tracker_PT::get_model_offset()
 
 void Tracker_PT::apply_settings()
 {
-    qDebug()<<"Tracker:: Applying settings";
+    qDebug() << "Tracker:: Applying settings";
     QMutexLocker l(&camera_mtx);
-    camera.set_device_index(camera_name_to_index("PS3Eye Camera"));
+    camera.set_device("PS3Eye Camera");
     int res_x, res_y, cam_fps;
+    CamInfo info = camera.get_desired();
     switch (s.camera_mode)
     {
     default:
@@ -214,17 +222,24 @@ void Tracker_PT::apply_settings()
         break;
     }
 
-    camera.set_res(res_x, res_y);
-    camera.set_fps(cam_fps);
-    qDebug() << "camera start";
-    camera.start();
-    frame = cv::Mat();
+    if (cam_fps != info.fps ||
+        res_x != info.res_x ||
+        res_y != info.res_y)
+    {
+        qDebug() << "pt: camera reset needed";
+        camera.stop();
+        camera.set_res(res_x, res_y);
+        camera.set_fps(cam_fps);
+        frame = cv::Mat();
+        camera.start();
+    }
+
     qDebug()<<"Tracker::apply ends";
 }
 
 void Tracker_PT::start_tracker(QFrame *parent_window)
 {
-    this->video_frame = parent_window;
+    video_frame = parent_window;
     video_frame->setAttribute(Qt::WA_NativeWindow);
     video_frame->show();
     video_widget = new PTVideoWidget(video_frame);
@@ -255,6 +270,9 @@ void Tracker_PT::data(double *data)
                          0, 1, 0);
         R = R_EG * R * R_EG.t();
 
+        using std::atan2;
+        using std::sqrt;
+
         // extract rotation angles
         float alpha, beta, gamma;
         beta  = atan2( -R(2,0), sqrt(R(2,1)*R(2,1) + R(2,2)*R(2,2)) );
@@ -266,8 +284,9 @@ void Tracker_PT::data(double *data)
         data[Pitch] = -rad2deg * beta;
         data[Roll] = rad2deg * gamma;
         // get translation(s)
-        data[TX] = t[0] / 10.0;	// convert to cm
-        data[TY] = t[1] / 10.0;
-        data[TZ] = t[2] / 10.0;
+        // convert to cm
+        data[TX] = t[0] / 10;
+        data[TY] = t[1] / 10;
+        data[TZ] = t[2] / 10;
     }
 }

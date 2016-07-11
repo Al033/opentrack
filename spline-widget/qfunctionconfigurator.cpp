@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanislaw Halik <sthalik@misaki.pl>
+/* Copyright (c) 2012-2016 Stanislaw Halik <sthalik@misaki.pl>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,15 +19,17 @@ QFunctionConfigurator::QFunctionConfigurator(QWidget *parent) :
     QWidget(parent),
     _config(nullptr),
     moving_control_point_idx(-1),
-    _draw_function(true),
     snap_x(0),
-    snap_y(0)
+    snap_y(0),
+    _draw_function(true),
+    _preview_only(false)
 {
     update_range();
     setMouseTracking(true);
 }
 
-void QFunctionConfigurator::setConfig(Map* config, const QString& name) {
+void QFunctionConfigurator::setConfig(Map* config, const QString& name)
+{
     mem<QSettings> iniFile = group::ini_file();
     if (name != "")
         config->loadSettings(*iniFile, name);
@@ -35,6 +37,16 @@ void QFunctionConfigurator::setConfig(Map* config, const QString& name) {
     _draw_function = true;
     update_range();
     update();
+}
+
+void QFunctionConfigurator::set_preview_only(bool val)
+{
+    _preview_only = val;
+}
+
+bool QFunctionConfigurator::is_preview_only() const
+{
+    return _preview_only;
 }
 
 void QFunctionConfigurator::drawBackground()
@@ -47,7 +59,7 @@ void QFunctionConfigurator::drawBackground()
     painter.fillRect(rect(), QColor::fromRgb(204, 204, 204));
 
     QColor bg_color(112, 154, 209);
-    if (!isEnabled())
+    if (!isEnabled() && !_preview_only)
         bg_color = QColor(176,176,180);
     painter.fillRect(pixel_bounds, bg_color);
 
@@ -64,13 +76,13 @@ void QFunctionConfigurator::drawBackground()
     QPen pen(color__, 1, Qt::SolidLine);
 
     const int xstep = 10, ystep = 10;
-    const double maxx = _config->maxInput();
-    const double maxy = _config->maxOutput();
+    const qreal maxx = _config->maxInput() + ystep;
+    const qreal maxy = _config->maxOutput() + xstep;
 
     // horizontal grid
     for (int i = 0; i < maxy; i += xstep)
     {
-        double y = pixel_bounds.height() - i * c.y() + pixel_bounds.y();
+        const qreal y = pixel_bounds.height() - i * c.y() + pixel_bounds.y();
         drawLine(&painter,
                  QPointF(pixel_bounds.x(), y),
                  QPointF(pixel_bounds.x() + pixel_bounds.width(), y),
@@ -82,38 +94,10 @@ void QFunctionConfigurator::drawBackground()
                          QString::number(i));
     }
 
-    {
-        const double i = maxy;
-        double y = pixel_bounds.height() - i * c.y() + pixel_bounds.y();
-        drawLine(&painter,
-                 QPointF(pixel_bounds.x(), y),
-                 QPointF(pixel_bounds.x() + pixel_bounds.width(), y),
-                 pen);
-        painter.drawText(QRectF(10,
-                                y - metrics.height()/2,
-                                pixel_bounds.x() - 10,
-                                metrics.height()),
-                         QString::number(i));
-    }
-
     // vertical grid
     for (int i = 0; i < maxx; i += ystep)
     {
-        double x = pixel_bounds.x() + i * c.x();
-        drawLine(&painter,
-                 QPointF(x, pixel_bounds.y()),
-                 QPointF(x, pixel_bounds.y() + pixel_bounds.height()),
-                 pen);
-        const QString text = QString::number(i);
-        painter.drawText(QRectF(x - metrics.width(text)/2,
-                                pixel_bounds.height() + 10 + metrics.height(),
-                                metrics.width(text),
-                                metrics.height()),
-                         text);
-    }
-    {
-        const double i = maxx;
-        double x = pixel_bounds.x() + i * c.x();
+        const qreal x = pixel_bounds.x() + i * c.x();
         drawLine(&painter,
                  QPointF(x, pixel_bounds.y()),
                  QPointF(x, pixel_bounds.y() + pixel_bounds.height()),
@@ -132,44 +116,61 @@ void QFunctionConfigurator::drawFunction()
     if (!_config)
         return;
 
-    _function = QPixmap(_background);
+    _function = _background;
     QPainter painter(&_function);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     QList<QPointF> points = _config->getPoints();
 
     const int alpha = !isEnabled() ? 64 : 120;
-    for (int i = 0; i < points.size(); i++) {
-        drawPoint(&painter,
-                  point_to_pixel(points[i]),
-                  QColor(200, 200, 210, alpha),
-                  isEnabled() ? QColor(50, 100, 120, 200) : QColor(200, 200, 200, 96));
+    if (!_preview_only)
+    {
+        for (int i = 0; i < points.size(); i++)
+        {
+            drawPoint(&painter,
+                      point_to_pixel(points[i]),
+                      QColor(200, 200, 210, alpha),
+                      isEnabled() ? QColor(50, 100, 120, 200) : QColor(200, 200, 200, 96));
+        }
     }
 
     QColor color = spline_color;
 
-    if (!isEnabled())
+    if (!isEnabled() && !_preview_only)
     {
-        const int avg = 176;
-        auto color_ = color;
-        color = QColor(color_.red() * .5 + avg * .5,
-                       color_.green() * .5 + avg * .5,
-                       color_.blue() * .5 + avg * .5,
+        const int avg = int(float(color.red() + color.green() + color.blue())/3);
+        color = QColor(int(float(color.red() + avg) * .5f),
+                       int(float(color.green() + avg) * .5f),
+                       int(float(color.blue() + avg) * .5f),
                        96);
     }
 
     QPen pen(color, 1.2, Qt::SolidLine);
 
-    const double max = _config->maxInput();
-    const double step = std::max(1e-2, max / 1000.);
+    const qreal step_ = line_length_pixels / c.x();
+    const qreal step = std::max(1e-2, step_);
+    const qreal max = _config->maxInput();
+
+    painter.save();
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
 
     QPointF prev = point_to_pixel(QPointF(0, 0));
-    for (double i = 0; i < max; i += step) {
-        double val = _config->getValue(i);
+    for (qreal i = 0; i < max; i += step)
+    {
+        const qreal val = qreal(_config->getValue(float(i)));
         QPointF cur = point_to_pixel(QPointF(i, val));
-        drawLine(&painter, prev, cur, pen);
+        painter.drawLine(prev, cur);
         prev = cur;
     }
+
+    {
+        const qreal val = _config->getValue(float(max));
+        QPointF last = point_to_pixel(QPointF(max, val));
+        painter.drawLine(prev, last);
+    }
+
+    painter.restore();
 }
 
 void QFunctionConfigurator::paintEvent(QPaintEvent *e)
@@ -189,14 +190,19 @@ void QFunctionConfigurator::paintEvent(QPaintEvent *e)
 
     p.drawPixmap(e->rect(), _function);
 
-    if (_config) {
+    if (_config)
+    {
         QPen pen(Qt::white, 1, Qt::SolidLine);
         QList<QPointF> points = _config->getPoints();
-        if (points.size() && moving_control_point_idx >= 0 && moving_control_point_idx < points.size()) {
+        if (points.size() &&
+            moving_control_point_idx >= 0 &&
+            moving_control_point_idx < points.size())
+        {
             if (points[0].x() > 1e-2)
                 points.prepend(QPointF(0, 0));
             QPointF prev = point_to_pixel(points[0]);
-            for (int i = 1; i < points.size(); i++) {
+            for (int i = 1; i < points.size(); i++)
+            {
                 auto tmp = point_to_pixel(points[i]);
                 drawLine(&p, prev, tmp, pen);
                 prev = tmp;
@@ -207,7 +213,8 @@ void QFunctionConfigurator::paintEvent(QPaintEvent *e)
         // Show that point on the graph, with some lines to assist.
         // This new feature is very handy for tweaking the curves!
         QPointF last;
-        if (_config->getLastPoint(last) && isEnabled()) {
+        if (_config->getLastPoint(last) && isEnabled())
+        {
             QPointF pixel_pos = point_to_pixel(last);
             drawPoint(&p, pixel_pos, QColor(255, 0, 0, 120));
         }
@@ -219,9 +226,9 @@ void QFunctionConfigurator::drawPoint(QPainter *painter, const QPointF &pos, QCo
     painter->save();
     painter->setPen(border);
     painter->setBrush( colBG );
-    painter->drawEllipse(QRectF(pos.x() - pointSize,
-                                pos.y() - pointSize,
-                                pointSize*2, pointSize*2));
+    painter->drawEllipse(QRectF(pos.x() - point_size,
+                                pos.y() - point_size,
+                                point_size*2, point_size*2));
     painter->restore();
 }
 
@@ -239,18 +246,23 @@ void QFunctionConfigurator::mousePressEvent(QMouseEvent *e)
     if (!_config || !isEnabled())
         return;
     QList<QPointF> points = _config->getPoints();
-    if (e->button() == Qt::LeftButton) {
+    if (e->button() == Qt::LeftButton)
+    {
         bool bTouchingPoint = false;
         moving_control_point_idx = -1;
-        if (_config) {
-            for (int i = 0; i < points.size(); i++) {
-                if (point_within_pixel(points[i], e->pos())) {
+        if (_config)
+        {
+            for (int i = 0; i < points.size(); i++)
+            {
+                if (point_within_pixel(points[i], e->pos()))
+                {
                     bTouchingPoint = true;
                     moving_control_point_idx = i;
                     break;
                 }
             }
-            if (!bTouchingPoint) {
+            if (!bTouchingPoint)
+            {
                 bool too_close = false;
                 const auto pos = e->pos();
 
@@ -271,17 +283,22 @@ void QFunctionConfigurator::mousePressEvent(QMouseEvent *e)
         }
     }
 
-    if (e->button() == Qt::RightButton) {
-        if (_config) {
+    if (e->button() == Qt::RightButton)
+    {
+        if (_config)
+        {
             int found_pt = -1;
-            for (int i = 0; i < points.size(); i++) {
-                if (point_within_pixel(points[i], e->pos())) {
+            for (int i = 0; i < points.size(); i++)
+            {
+                if (point_within_pixel(points[i], e->pos()))
+                {
                     found_pt = i;
                     break;
                 }
             }
 
-            if (found_pt != -1) {
+            if (found_pt != -1)
+            {
                 _config->removePoint(found_pt);
             }
             moving_control_point_idx = -1;
@@ -298,12 +315,14 @@ void QFunctionConfigurator::mouseMoveEvent(QMouseEvent *e)
 
     QList<QPointF> points = _config->getPoints();
 
-    if (moving_control_point_idx != -1 && moving_control_point_idx < points.size()) {
+    if (moving_control_point_idx != -1 &&
+        moving_control_point_idx < points.size())
+    {
         setCursor(Qt::ClosedHandCursor);
 
         bool overlap = false;
 
-        QPoint pix = e->pos();
+        QPointF pix = e->pos();
         QPointF new_pt = pixel_coord_to_point(pix);
 
         for (int i = 0; i < 2; i++)
@@ -316,7 +335,7 @@ void QFunctionConfigurator::mouseMoveEvent(QMouseEvent *e)
                 bad = pix.x() + point_closeness_limit > other_pix.x();
                 if (i == 0 && bad)
                 {
-                    pix.setX(other_pix.x() - point_closeness_limit - 1);
+                    pix.setX(other_pix.x() - point_closeness_limit);
                     new_pt = pixel_coord_to_point(pix);
                 }
                 else
@@ -329,7 +348,7 @@ void QFunctionConfigurator::mouseMoveEvent(QMouseEvent *e)
                 bad = pix.x() - point_closeness_limit < other_pix.x();
                 if (i == 0 && bad)
                 {
-                    pix.setX(other_pix.x() + point_closeness_limit + 1);
+                    pix.setX(other_pix.x() + point_closeness_limit);
                     new_pt = pixel_coord_to_point(pix);
                 }
                 else
@@ -347,20 +366,25 @@ void QFunctionConfigurator::mouseMoveEvent(QMouseEvent *e)
             update();
         }
     }
-    else {
+    else
+    {
         bool is_on_point = false;
-        for (int i = 0; i < points.size(); i++) {
+        for (int i = 0; i < points.size(); i++)
+        {
             const QPoint pos = e->pos();
-            if (point_within_pixel(points[i], pos)) {
+            if (point_within_pixel(points[i], pos))
+            {
                 is_on_point = true;
                 break;
             }
         }
 
-        if (is_on_point) {
+        if (is_on_point)
+        {
             setCursor(Qt::CrossCursor);
         }
-        else {
+        else
+        {
             setCursor(Qt::ArrowCursor);
         }
     }
@@ -371,7 +395,8 @@ void QFunctionConfigurator::mouseReleaseEvent(QMouseEvent *e)
     if (!_config || !isEnabled())
         return;
 
-    if (e->button() == Qt::LeftButton) {
+    if (e->button() == Qt::LeftButton)
+    {
         mouseMoveEvent(e);
         setCursor(Qt::ArrowCursor);
         moving_control_point_idx = -1;
@@ -386,9 +411,9 @@ void QFunctionConfigurator::update_range()
     if (!_config)
         return;
 
-    const double w = width(), h = height();
-    const double mwl = 40, mhl = 20;
-    const double mwr = 15, mhr = 35;
+    const int w = width(), h = height();
+    const int mwl = 40, mhl = 20;
+    const int mwr = 15, mhr = 35;
 
     pixel_bounds = QRectF(mwl, mhl, (w - mwl - mwr), (h - mhl - mhr));
     c = QPointF(pixel_bounds.width() / _config->maxInput(), pixel_bounds.height() / _config->maxOutput());
@@ -396,14 +421,14 @@ void QFunctionConfigurator::update_range()
 
     _background = QPixmap();
     _function = QPixmap();
-    
+
     update();
 }
 
 bool QFunctionConfigurator::point_within_pixel(const QPointF &pt, const QPointF &pixel)
 {
     QPointF tmp = pixel - point_to_pixel(pt);
-    return sqrt(QPointF::dotProduct(tmp, tmp)) < pointSize;
+    return sqrt(QPointF::dotProduct(tmp, tmp)) < point_size;
 }
 
 QPointF QFunctionConfigurator::pixel_coord_to_point(const QPointF& point)
@@ -411,13 +436,13 @@ QPointF QFunctionConfigurator::pixel_coord_to_point(const QPointF& point)
     if (!_config)
         return QPointF(-1, -1);
 
-    int x = (point.x() - pixel_bounds.x()) / c.x();
-    int y = (pixel_bounds.height() - point.y() + pixel_bounds.y()) / c.y();
-    
+    qreal x = (point.x() - pixel_bounds.x()) / c.x();
+    qreal y = (pixel_bounds.height() - point.y() + pixel_bounds.y()) / c.y();
+
     if (snap_x > 0)
-        x -= x % snap_x;
+        x -= int(x) % snap_x;
     if (snap_y > 0)
-        y -= y % snap_y;
+        y -= int(y) % snap_y;
 
     if (x < 0)
         x = 0;

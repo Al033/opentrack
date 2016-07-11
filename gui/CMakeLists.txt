@@ -10,25 +10,18 @@ else()
     set(opentrack-win32-executable "")
 endif()
 
-opentrack_qt(opentrack)
 add_executable(opentrack ${opentrack-win32-executable} ${opentrack-all})
-opentrack_compat(opentrack)
 
-if(NOT WIN32)
-    set_target_properties(opentrack PROPERTIES SUFFIX ".bin")
-endif()
+set_target_properties(opentrack PROPERTIES SUFFIX "${opentrack-binary-suffix}")
 
 target_link_libraries(opentrack
+    opentrack-logic
     opentrack-spline-widget
     opentrack-pose-widget
-    opentrack-api
-    opentrack-compat
     opentrack-version
     # trackhat
     opentrack-tracker-pt opentrack-filter-accela
 )
-
-link_with_dinput8(opentrack)
 
 if(APPLE)
     # for process detector
@@ -41,18 +34,5 @@ if(LINUX)
     target_link_libraries(opentrack procps)
 endif()
 
-set(c-props)
-set(l-props)
-if(CMAKE_COMPILER_IS_GNUCXX)
-    set(c-props "-fvisibility=hidden -fvisibility-inlines-hidden")
-    if(NOT APPLE)
-        set(l-props "-Wl,--as-needed")
-    endif()
-endif()
+opentrack_boilerplate(opentrack STAGE2)
 
-set_target_properties(opentrack PROPERTIES
-    LINK_FLAGS "${l-props}"
-    COMPILE_FLAGS "${c-props}"
-)
-
-install(TARGETS opentrack DESTINATION .)

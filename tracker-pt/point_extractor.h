@@ -25,10 +25,12 @@ public:
     const std::vector<cv::Vec2f> &extract_points(cv::Mat &frame);
     int get_n_points() { QMutexLocker l(&mtx); return points.size(); }
     PointExtractor();
-    
+
     settings_pt s;
 private:
-    enum { hist_c = 2 };
+    static constexpr double pi = 3.14159265359;
+    static constexpr int hist_c = 1;
+
     std::vector<cv::Vec2f> points;
     QMutex mtx;
     cv::Mat frame_gray;
