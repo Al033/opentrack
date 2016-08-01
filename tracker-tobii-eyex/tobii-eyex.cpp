@@ -5,9 +5,12 @@
 #include <functional>
 #include <vector>
 #include <algorithm>
+#include <iterator>
 #include <QDebug>
 #include <QMutexLocker>
 #include <QMessageBox>
+
+// XXX TODO whole opentrack needs different debug levels -sh 20160801
 
 //#define TOBII_EYEX_DEBUG_PRINTF
 #define TOBII_EYEX_VERBOSE_PRINTF
@@ -41,10 +44,10 @@ static constexpr t clamp(t datum, t min, t max)
 
 rel_settings::rel_settings() :
     opts("tobii-eyex-relative-mode"),
-    speed(b, "speed", s::from_abs(5, .1, 10)),
-    dz_end_pt(b, "deadzone-length", s::from_abs(.05, 0, .2)),
-    expt_val(b, "exponent", s::from_abs(1.75, 1.25, 2.25)),
-    log_base(b, "logarithm-base", s::from_abs(1.75, 1.1, 5))
+    speed(b, "speed", s(5, .1, 10)),
+    dz_end_pt(b, "deadzone-length", s(.05, 0, .2)),
+    expt_val(b, "exponent", s(1.75, 1.25, 2.25)),
+    log_base(b, "logarithm-base", s(1.75, 1.1, 5))
 {}
 
 tobii_eyex_tracker::tobii_eyex_tracker() :
@@ -194,7 +197,6 @@ void tobii_eyex_tracker::gaze_data_handler(TX_HANDLE gaze_data_handle)
                 params.Y >= 0 && params.Y < dev_state.display_res_y)
             {
                 dev_state.last_timestamp = params.Timestamp;
-                dev_state.fresh = true;
                 dev_state.px = params.X;
                 dev_state.py = params.Y;
 
@@ -203,6 +205,8 @@ void tobii_eyex_tracker::gaze_data_handler(TX_HANDLE gaze_data_handle)
                 (void) std::sprintf(buf, "gaze data: (%.1f, %.1f)", params.X, params.Y);
                 dbg_debug(buf);
 #endif
+
+                dev_state.fresh = true;
             }
         }
     }
@@ -308,16 +312,13 @@ plot_fn(lambda x: piecewise(x, [zero, f, g, h], [.05, .25, .7, 1.]))
 template<typename funs_seq, typename bounds_seq>
 tobii_eyex_tracker::num tobii_eyex_tracker::piecewise(num x, const funs_seq& funs, const bounds_seq& bounds)
 {
-    // no const qualifier since std::initializer_list has no cbegin/cend methods
-    // also std::cbegin/cend is c++14 and upwards
-
-    auto funs_it = const_cast<funs_seq&>(funs).begin();
-    auto bounds_it = const_cast<bounds_seq&>(bounds).begin();
-
-    auto funs_end = const_cast<funs_seq&>(funs).end();
-    auto bounds_end = const_cast<bounds_seq&>(bounds).end();
-
     using fn = std::function<num(num)>;
+
+    auto funs_it = std::begin(funs);
+    auto bounds_it = std::begin(bounds);
+
+    auto funs_end = std::end(funs);
+    auto bounds_end = std::end(bounds);
 
     num norm = 0;
 
@@ -354,9 +355,11 @@ tobii_eyex_tracker::num tobii_eyex_tracker::piecewise(num x, const funs_seq& fun
     return clamp(y / norm, num(0), num(1));
 }
 
-tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x)
+tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x_)
 {
-    static const seq<fun_t> funs =
+    const num x = std::fabs(x_);
+
+    static const fun_t funs[] =
     {
         [](num) -> num { return num(0); },
         [](num x) -> num { return std::pow(x, num(1.75)); },
@@ -366,7 +369,7 @@ tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x)
 
     constexpr num dz_l = .5, expt_l = .3, lin_l = .6;
 
-    static constexpr seq<num> ends =
+    static constexpr num ends[] =
     {
         dz_l,
         expt_l,
@@ -375,13 +378,12 @@ tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x)
     };
 
     const num ret = piecewise(x, funs, ends);
-    return clamp(ret, num(0), num(1));
+    return std::copysign(clamp(ret, num(0), num(1)), x_);
 }
 
 void tobii_eyex_tracker::data(double* data)
 {
     TX_REAL x, y, w, h, tx, ty;
-    bool fresh = false;
 
     {
         QMutexLocker l(&global_state_mtx);
@@ -389,26 +391,22 @@ void tobii_eyex_tracker::data(double* data)
         if (!dev_state.is_valid())
             return;
 
-        if (dev_state.fresh)
-        {
-            dev_state.fresh = false;
-            fresh = true;
-        }
-
         x = dev_state.px;
         y = dev_state.py;
         w = dev_state.display_res_x;
         h = dev_state.display_res_y;
     }
 
-    tx = (x-w/2) * 100 / (w/2);
-    ty = (y-h/2) * -100 / (h/2);
+    tx = (x-w/2) * 50 / (w/2);
+    ty = (y-h/2) * -50 / (h/2);
 
     data[TX] = tx;
     data[TY] = ty;
 
-    if (fresh)
+    if (dev_state.fresh)
     {
+        dev_state.fresh = false;
+
         tx /= 100;
         ty /= 100;
 
@@ -417,8 +415,8 @@ void tobii_eyex_tracker::data(double* data)
         // XXX TODO make slider
         constexpr double v = 800;
 
-        tx = std::copysign(gain(std::fabs(tx)), tx);
-        ty = std::copysign(gain(std::fabs(ty)), ty);
+        tx = gain(tx);
+        ty = gain(ty);
 
         const double yaw_delta = (tx * v) * dt;
         const double pitch_delta = (ty * v) * dt;

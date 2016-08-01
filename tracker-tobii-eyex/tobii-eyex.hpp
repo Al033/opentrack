@@ -8,6 +8,8 @@
  * notice appear in all copies.
  */
 
+#include <EyeX.h>
+
 #include "ui_tobii-eyex-dialog.h"
 #include "opentrack/plugin-api.hpp"
 #include "opentrack-compat/options.hpp"
@@ -16,7 +18,6 @@ using namespace options;
 #include "spline-widget/functionconfig.h"
 #include "spline-widget/qfunctionconfigurator.h"
 
-#include <EyeX.h>
 #include <atomic>
 #include <QObject>
 #include <QMutex>
@@ -72,7 +73,6 @@ private:
     template<typename funs_seq, typename bounds_seq>
     static num piecewise(num x, const funs_seq& funs, const bounds_seq& bounds);
 
-    template<typename t> using seq = std::initializer_list<t>;
     using fun_t = std::function<num(num)>;
 
     num gain(num x);
@@ -95,7 +95,7 @@ private:
         TX_REAL display_res_x, display_res_y;
         TX_REAL px, py;
         TX_REAL last_timestamp;
-        bool fresh;
+        volatile bool fresh;
 
         state() : display_res_x(-1), display_res_y(-1), px(-1), py(-1), last_timestamp(0), fresh(false) {}
         bool is_valid() const { return !(display_res_x < 0 || px < 0); }
@@ -104,7 +104,7 @@ private:
     double yaw, pitch;
 };
 
-class tobii_eyex_dialog : public ITrackerDialog
+class tobii_eyex_dialog final : public ITrackerDialog
 {
     Q_OBJECT
 public:
