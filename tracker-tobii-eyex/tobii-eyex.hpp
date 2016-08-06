@@ -54,6 +54,11 @@ public:
     ~tobii_eyex_tracker() override;
     void start_tracker(QFrame *) override;
     void data(double *data) override;
+    bool center() override
+    {
+        do_center = true;
+        return true;
+    }
 private:
     static constexpr const char* client_id = "opentrack-tobii-eyex";
 
@@ -95,13 +100,14 @@ private:
         TX_REAL display_res_x, display_res_y;
         TX_REAL px, py;
         TX_REAL last_timestamp;
-        volatile bool fresh;
+        bool fresh;
 
         state() : display_res_x(-1), display_res_y(-1), px(-1), py(-1), last_timestamp(0), fresh(false) {}
         bool is_valid() const { return !(display_res_x < 0 || px < 0); }
     } dev_state;
 
     double yaw, pitch;
+    volatile bool do_center;
 };
 
 class tobii_eyex_dialog final : public ITrackerDialog

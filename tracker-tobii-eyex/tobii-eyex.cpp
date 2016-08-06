@@ -57,7 +57,8 @@ tobii_eyex_tracker::tobii_eyex_tracker() :
     state_snapshot(TX_EMPTY_HANDLE),
     display_state(TX_EMPTY_HANDLE),
     yaw(0),
-    pitch(0)
+    pitch(0),
+    do_center(false)
 {
 }
 
@@ -301,7 +302,7 @@ def piecewise(x, funs, bounds):
     return y / norm
 
 def f(x): return x**1.75
-def g(x): return 3.5*x
+def g(x): return 1.75*1.75*x
 def h(x): return log(1+x)/log(2.5)
 def zero(x): return 0.
 
@@ -362,18 +363,16 @@ tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x_)
     static const fun_t funs[] =
     {
         [](num) -> num { return num(0); },
-        [](num x) -> num { return std::pow(x, num(1.75)); },
-        [](num x) -> num { return x*num(1.75); },
-        [](num x) -> num { return std::log(x+num(1.75))/std::log(num(1.75)); },
+        [](num x) -> num { return std::pow(x, 1.1)*.08; },
+        [](num x) -> num { return x*.5; },
     };
 
-    constexpr num dz_l = .5, expt_l = .3, lin_l = .6;
+    static constexpr num dz_l = .1, expt_l = .3;
 
     static constexpr num ends[] =
     {
         dz_l,
         expt_l,
-        lin_l,
         1,
     };
 
@@ -383,7 +382,8 @@ tobii_eyex_tracker::num tobii_eyex_tracker::gain(num x_)
 
 void tobii_eyex_tracker::data(double* data)
 {
-    TX_REAL x, y, w, h, tx, ty;
+    TX_REAL px, py, dw, dh, x_, y_;
+    bool fresh;
 
     {
         QMutexLocker l(&global_state_mtx);
@@ -391,45 +391,52 @@ void tobii_eyex_tracker::data(double* data)
         if (!dev_state.is_valid())
             return;
 
-        x = dev_state.px;
-        y = dev_state.py;
-        w = dev_state.display_res_x;
-        h = dev_state.display_res_y;
+        px = dev_state.px;
+        py = dev_state.py;
+        dw = dev_state.display_res_x;
+        dh = dev_state.display_res_y;
+
+        fresh = dev_state.fresh;
+        dev_state.fresh = false;
     }
 
-    tx = (x-w/2) * 50 / (w/2);
-    ty = (y-h/2) * -50 / (h/2);
+    x_ = (px-dw/2.) / (dw/2.);
+    y_ = (py-dh/2.) / (dh/2.);
 
-    data[TX] = tx;
-    data[TY] = ty;
+    data[TX] = x_ * 50;
+    data[TY] = y_ * -50;
 
-    if (dev_state.fresh)
+    if (fresh)
     {
-        dev_state.fresh = false;
-
-        tx /= 100;
-        ty /= 100;
-
         const double dt = t.elapsed_seconds();
         t.start();
         // XXX TODO make slider
-        constexpr double v = 800;
+        static constexpr double v = 300;
 
-        tx = gain(tx);
-        ty = gain(ty);
+        const double x = gain(x_);
+        const double y = gain(y_);
 
-        const double yaw_delta = (tx * v) * dt;
-        const double pitch_delta = (ty * v) * dt;
+        const double yaw_delta = (x * v) * dt;
+        const double pitch_delta = (y * -v) * dt;
 
         yaw += yaw_delta;
         pitch += pitch_delta;
 
         yaw = clamp(yaw, -180., 180.);
-        pitch = clamp(pitch, -180., 180.);
+        pitch = clamp(pitch, -60., 60.);
+    }
+
+    if (do_center)
+    {
+        do_center = false;
+        yaw = 0;
+        pitch = 0;
     }
 
     data[Yaw] = yaw;
     data[Pitch] = pitch;
+    data[Roll] = 0;
+    data[TZ] = 0; // XXX TODO
 
     // tan(x) in 0->.7 is almost linear. we don't need to adjust.
     // .7 is 40 degrees which is already quite a lot from the monitor.
